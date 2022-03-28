@@ -5,6 +5,7 @@ local netbox = require('net.box') -- for net.box:self()
 local trigger = require('internal.trigger')
 local ffi = require('ffi')
 local yaml_encode = require('yaml').encode
+local tracing_decorator = require('tracing_decorator')
 local fiber_clock = lfiber.clock
 local netbox_self = netbox.self
 local netbox_self_call = netbox_self.call
@@ -3168,8 +3169,22 @@ return {
     --
     -- Miscellaneous.
     --
-    call = storage_make_api(storage_call),
-    _call = storage_make_api(service_call),
+    call = tracing_decorator.decorate(
+        storage_make_api(storage_call), 'call', {
+            component = 'vshard-storage',
+            tags = {
+                module = 'vshard.storage.init',
+            }
+        }
+    ),
+    _call = tracing_decorator.decorate(
+        storage_make_api(service_call), '_call', {
+            component = 'vshard-storage',
+            tags = {
+                module = 'vshard.storage.init',
+            }
+        }
+    ),
     sync = storage_make_api(sync),
     cfg = function(cfg, uuid) return storage_cfg(cfg, uuid, false) end,
     on_master_enable = storage_make_api(on_master_enable),

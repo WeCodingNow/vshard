@@ -60,6 +60,8 @@ local luri = require('uri')
 local luuid = require('uuid')
 local ffi = require('ffi')
 local util = require('vshard.util')
+local tracing_decorator = require('tracing_decorator')
+local fun_tags          = require('tracing_decorator.fun_tags')
 local fiber_clock = fiber.clock
 local fiber_yield = fiber.yield
 local fiber_cond_wait = util.fiber_cond_wait
@@ -335,9 +337,12 @@ end
 --
 local function replica_call(replica, func, args, opts)
     assert(opts and opts.timeout)
+
     local conn = replica.conn
+    -- XXX: patched conn.call
     local net_status, storage_status, retval, error_object =
-        pcall(conn.call, conn, func, args, opts)
+        -- pcall(conn.call, conn, func, args, opts)
+        pcall(tracing_decorator.decorate_conn_call(conn.call), conn, func, args, opts)
     if not net_status then
         -- Do not increase replica's network timeout, if the
         -- requested one was less, than network's one. For
@@ -371,6 +376,20 @@ local function replica_call(replica, func, args, opts)
     end
     return true, storage_status, retval, error_object
 end
+replica_call = tracing_decorator.decorate(
+    replica_call, "replica_call", {
+        component = 'vshard-router',
+        tags = {
+            fun_tags.select_args(function (_, func)
+                return {
+                    func = func,
+                }
+            end),
+
+            module = 'vshard.replicaset',
+        }
+    }
+)
 
 --
 -- Detach the connection object from its replica object.
@@ -436,6 +455,14 @@ local function replicaset_master_call(replicaset, func, args, opts)
     -- Ignore net_status - master does not retry requests.
     return storage_status, retval, error_object
 end
+replicaset_master_call = tracing_decorator.decorate(
+    replicaset_master_call, "replicaset_master_call", {
+        component = 'vshard-router',
+        tags = {
+            module = 'vshard.replicaset',
+        }
+    }
+)
 
 --
 -- True, if after error @a e a read request can be retried.
@@ -855,12 +882,54 @@ local replicaset_mt = {
         down_replica_priority = replicaset_down_replica_priority;
         up_replica_priority = replicaset_up_replica_priority;
         wait_connected = replicaset_wait_connected,
-        call = replicaset_master_call;
-        callrw = replicaset_master_call;
-        callro = replicaset_template_multicallro(false, false);
-        callbro = replicaset_template_multicallro(false, true);
-        callre = replicaset_template_multicallro(true, false);
-        callbre = replicaset_template_multicallro(true, true);
+        call = tracing_decorator.decorate(
+            replicaset_master_call, 'replicaset.call', {
+                component = 'vshard-router',
+                tags = {
+                    module = 'vshard.replicaset',
+                }
+            }
+        );
+        callrw = tracing_decorator.decorate(
+            replicaset_master_call, 'replicaset.callrw', {
+                component = 'vshard-router',
+                tags = {
+                    module = 'vshard.replicaset',
+                }
+            }
+        );
+        callro = tracing_decorator.decorate(
+            replicaset_template_multicallro(false, false), 'replicaset.callro', {
+                component = 'vshard-router',
+                tags = {
+                    module = 'vshard.replicaset',
+                }
+            }
+        );
+        callbro = tracing_decorator.decorate(
+            replicaset_template_multicallro(false, true), 'replicaset.callbro', {
+                component = 'vshard-router',
+                tags = {
+                    module = 'vshard.replicaset',
+                }
+            }
+        );
+        callre = tracing_decorator.decorate(
+            replicaset_template_multicallro(true, false), 'replicaset.callre', {
+                component = 'vshard-router',
+                tags = {
+                    module = 'vshard.replicaset',
+                }
+            }
+        );
+        callbre = tracing_decorator.decorate(
+            replicaset_template_multicallro(true, true), 'replicaset.callbre', {
+                component = 'vshard-router',
+                tags = {
+                    module = 'vshard.replicaset',
+                }
+            }
+        );
         update_master = replicaset_update_master,
     };
     __tostring = replicaset_tostring;

@@ -2,9 +2,12 @@ local log = require('log')
 local lfiber = require('fiber')
 local lmsgpack = require('msgpack')
 local table_new = require('table.new')
+local tracing_decorator = require('tracing_decorator')
 local fiber_clock = lfiber.clock
 
 local MODULE_INTERNALS = '__module_vshard_router'
+local CALL_TRACING_CONTEXT = 'trace_ctx'
+
 -- Reload requirements, in case this module is reloaded manually.
 if rawget(_G, MODULE_INTERNALS) then
     local vshard_modules = {
@@ -558,6 +561,10 @@ local function router_call_impl(router, bucket_id, mode, prefer_replica,
         opts = {}
         do_return_raw = false
     end
+
+    -- transferring tracing context
+    -- only if we are tracing already
+
     local timeout = opts.timeout or consts.CALL_TIMEOUT_MIN
     local replicaset, err
     local tend = fiber_clock() + timeout
@@ -682,6 +689,10 @@ local function router_call_impl(router, bucket_id, mode, prefer_replica,
         return nil, lerror.timeout()
     end
 end
+router_call_impl = tracing_decorator.decorate(
+    router_call_impl, "router_call_impl", {
+    component = 'vshard.router'
+})
 
 --
 -- Wrappers for router_call with preset mode.
